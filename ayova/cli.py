@@ -305,3 +305,44 @@ def init():
 
 if __name__ == "__main__":
     main()
+@main.command()
+def chat():
+    """Interactive chat mode - runs until you type 'exit'"""
+    ui.show_splash(0.5)
+    
+    identity = get_identity()
+    if not identity.exists():
+        ui.error("No identity! Run 'ayova setup' first.")
+        return
+    
+    ui.info(f"Welcome, {identity.username}! Type 'exit' to quit.")
+    ui.console.print("Commands: trust, send, inbox, stats, or just type a message")
+    ui.console.print()
+    
+    while True:
+        try:
+            # Get user input
+            cmd = ui.console.input("[bold #9B8AE0]ayova> [/bold #9B8AE0]")
+            
+            if cmd.lower() in ['exit', 'quit', 'q']:
+                ui.info("Goodbye! 👋")
+                break
+            elif cmd.lower() == 'stats':
+                # Run stats command
+                store = storage.MessageStore()
+                local_count = store.count_messages()
+                tm = get_trust_manager()
+                ui.show_stats(local_count, len(tm.list_trusted()), True)
+            elif cmd.lower().startswith('trust '):
+                # Handle trust commands
+                ui.info("Use: ayova trust @user --pubkey <key>")
+            elif cmd.lower() == 'inbox':
+                ui.show_inbox([])  # Placeholder
+            else:
+                ui.info(f"Unknown command: {cmd}. Try: trust, send, stats, inbox, exit")
+                
+        except KeyboardInterrupt:
+            ui.info("\nGoodbye! 👋")
+            break
+        except EOFError:
+            break
