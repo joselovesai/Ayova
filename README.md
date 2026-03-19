@@ -19,8 +19,8 @@
 ## 🚀 Installation
 
 ```bash
-cd vault_cli
-pip install -e .
+pip3 install git+https://github.com/joselovesai/ayova.git
+
 ```
 
 ## 📝 Commands
