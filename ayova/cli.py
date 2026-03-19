@@ -1,4 +1,4 @@
-"""AYOVA CLI - Light Hybrid P2P with device-based identity"""
+"""AYOVA CLI - Light Hybrid P2P with Interactive Chat Mode"""
 import click
 import asyncio
 from . import ui, storage, crypto
@@ -10,16 +10,20 @@ import base64
 import json
 
 
-@click.group()
+@click.group(invoke_without_command=True)
+@click.option('--chat', is_flag=True, help='Start interactive chat mode')
 @click.version_option(version="2.0.0")
-def main():
+def main(chat):
     """
     ◉ AYOVA P2P - Secure Messenger ◉
     
     🔐 Device-based, trust-first, E2E encrypted messaging.
-    By Ayogwokhai Jose Maria
+    By Ayogwokhai Josemaria
+    
+    Run 'ayova --chat' for interactive mode
     """
-    pass
+    if chat:
+        interactive_chat()
 
 
 @main.command()
@@ -76,7 +80,6 @@ def trust(username, pubkey, device_id, fingerprint, notes):
     
     tm = get_trust_manager()
     
-    # Verify key format
     try:
         base64.b64decode(pubkey)
     except Exception:
@@ -114,7 +117,7 @@ def trusted():
 
 
 @main.command()
-@click.argument("recipient")  # @username or username
+@click.argument("recipient")
 @click.argument("message")
 @click.option("--host", required=True, help="Recipient's hostname or IP")
 @click.option("--port", default=22, help="Port (22 for SSH, 23231 for direct TCP)")
@@ -128,10 +131,8 @@ def send(recipient, message, host, port, tcp):
         ui.error("No identity! Run 'ayova setup' first.")
         return
     
-    # Clean username
     recipient = recipient.lstrip('@')
     
-    # Get recipient's public key from trust list
     tm = get_trust_manager()
     trusted = tm.get_trusted(recipient)
     if not trusted:
@@ -139,15 +140,13 @@ def send(recipient, message, host, port, tcp):
         ui.info(f"Run: ayova trust @{recipient} --pubkey <their_key>")
         return
     
-    # Pack message with E2E encryption
     try:
         recipient_pubkey = base64.b64decode(trusted['public_key'])
         
         with ui.show_loading("🔐 Encrypting message..."):
             payload = pack_message(message, identity.signing_key, recipient_pubkey)
         
-        # Send via network
-        with ui.show_loading(f"📤 Sending to @{recipient} at {host}..."):
+        with ui.show_loading(f"📤 Sending to @{recipient}..."):
             success = asyncio.run(send_to_peer(
                 recipient, host, payload, 
                 use_ssh=not tcp, port=port
@@ -155,11 +154,8 @@ def send(recipient, message, host, port, tcp):
         
         if success:
             ui.show_send_success(recipient)
-            # Save to local sent messages
-            store = storage.MessageStore()
-            store.save_message(payload, b'sent', f"sent:{recipient}")
         else:
-            ui.error("Failed to deliver message. Is the recipient online?")
+            ui.error("Failed to deliver. Is recipient online?")
             
     except Exception as e:
         ui.error(f"Send failed: {str(e)}")
@@ -167,7 +163,7 @@ def send(recipient, message, host, port, tcp):
 
 @main.command()
 def inbox():
-    """Check received messages (placeholder for listener mode)"""
+    """Check received messages"""
     ui.show_splash(0.3)
     
     identity = get_identity()
@@ -175,45 +171,91 @@ def inbox():
         ui.error("No identity found!")
         return
     
-    # For now, show placeholder - real listener needs async server
-    ui.info("P2P Listener Mode")
+    ui.info("P2P Listener Mode (Light Hybrid)")
     ui.console.print("""
-[dim]To receive messages, the sender needs your hostname/IP.[/dim]
-[dim]You must trust them first before they can message you.[/dim]
-
-[bold]Quick start for receiving:[/bold]
-1. Share your identity:  ayova id --export
-2. Have them trust you:  ayova trust @you --pubkey <your_key>
-3. They send:            ayova send @you "Hello" --host your-ip
-
-[dim]Note: Full listener mode requires running 'ayova daemon' (coming soon)[/dim]
+[dim]To receive, sender needs your IP + must be trusted.[/dim]
+[dim]Run 'ayova daemon' on a server for 24/7 mailbox (uses more RAM).[/dim]
     """)
 
 
 @main.command()
 def daemon():
-    """Start background listener for incoming messages (not implemented in Light Hybrid)"""
+    """Background listener (not in Light Hybrid)"""
     ui.show_splash(0.5)
-    ui.warn("Daemon mode not available in Light Hybrid.")
-    ui.info("Light Hybrid is client-only to save RAM (~120MB vs ~250MB).")
-    ui.console.print("""
-[dim]For full P2P with daemon mode, use the SSH-based version.[/dim]
-[dim]Trade-off: More RAM usage but can receive without initiating.[/dim]
-
-[bold]Workaround for receiving messages:[/bold]
-- Run AYOVA on a small VPS/cloud instance (512MB+ RAM)
-- Use it as your "mailbox" - lightweight clients connect to it
-- Or use direct TCP with port forwarding on your router
-    """)
+    ui.warn("Daemon mode not in Light Hybrid (~120MB client-only).")
+    ui.info("Use a VPS for full daemon mode (512MB+ RAM).")
 
 
-# Legacy local vault commands (preserved for backward compatibility)
+@main.command()
+def chat():
+    """Interactive chat mode - runs until you type 'exit'"""
+    interactive_chat()
+
+
+def interactive_chat():
+    """REPL loop - keeps running until exit"""
+    ui.show_splash(0.5)
+    
+    identity = get_identity()
+    if not identity.exists():
+        ui.error("No identity! Run 'ayova setup' first.")
+        return
+    
+    ui.info(f"Welcome [bold]{identity.username}[/bold]! Interactive mode started.")
+    ui.console.print("Commands: send @user msg --host, trust, stats, inbox, help, exit")
+    ui.console.print()
+    
+    while True:
+        try:
+            cmd = ui.console.input("[bold #9B8AE0]ayova> [/bold #9B8AE0]")
+            cmd = cmd.strip()
+            
+            if not cmd:
+                continue
+            elif cmd.lower() in ['exit', 'quit', 'q']:
+                ui.info("Goodbye! 👋")
+                break
+            elif cmd.lower() == 'help':
+                ui.console.print("""
+send @user "message" --host <ip>    Send message
+trust @user --pubkey <key>          Trust someone
+stats                                Show your info
+trusted                              List trusted contacts
+inbox                                Check messages
+setup                                Create identity
+exit                                 Quit
+                """)
+            elif cmd.lower() == 'stats':
+                store = storage.MessageStore()
+                local_count = store.count_messages()
+                tm = get_trust_manager()
+                ui.show_stats(local_count, len(tm.list_trusted()), True)
+            elif cmd.lower().startswith('send '):
+                ui.info("Use: send @user \"message\" --host <ip>")
+            elif cmd.lower() == 'trusted':
+                tm = get_trust_manager()
+                ui.show_trusted(tm.list_trusted())
+            elif cmd.lower() == 'inbox':
+                ui.info("Inbox: Check ayova inbox (placeholder for listener)")
+            elif cmd.lower() == 'setup':
+                ui.info("Run 'ayova setup' (non-interactive)")
+            else:
+                ui.warn(f"Unknown: {cmd}. Type 'help' for commands.")
+                
+        except KeyboardInterrupt:
+            ui.info("\nGoodbye! 👋")
+            break
+        except EOFError:
+            break
+
+
+# Legacy local vault commands
 @main.command()
 @click.argument("message", required=True)
-@click.option("--tag", "-t", default="general", help="Tag for categorization")
+@click.option("--tag", "-t", default="general")
 @click.option("--password", "-p", help="Encryption password")
 def write(message: str, tag: str, password: str):
-    """Write local encrypted message (legacy vault mode)"""
+    """Write local encrypted message"""
     ui.show_splash(0.5)
     
     if not password:
@@ -283,7 +325,7 @@ def stats():
 
 @main.command()
 def init():
-    """Initialize AYOVA (shows splash + quick start)"""
+    """Initialize AYOVA"""
     ui.show_splash(1.5)
     
     identity = get_identity()
@@ -292,12 +334,13 @@ def init():
         ui.console.print("""
 [bold]Quick start:[/bold]
   1. Create identity:    ayova setup
-  2. Show your ID:      ayova id --export
-  3. Trust a contact:   ayova trust @bob --pubkey <key>
-  4. Send message:      ayova send @bob "Hello" --host bob.com
-  5. View stats:        ayova stats
+  2. Interactive mode:   ayova chat
+  3. Show your ID:        ayova id --export
+  4. Trust a contact:     ayova trust @bob --pubkey <key>
+  5. Send message:        ayova send @bob "Hello" --host bob.com
+  6. View stats:          ayova stats
 
-[dim]Your identity and messages are stored in ~/.ayova/[/dim]
+[dim]Your data is in ~/.ayova/[/dim]
         """)
     else:
         stats()
@@ -305,44 +348,3 @@ def init():
 
 if __name__ == "__main__":
     main()
-@main.command()
-def chat():
-    """Interactive chat mode - runs until you type 'exit'"""
-    ui.show_splash(0.5)
-    
-    identity = get_identity()
-    if not identity.exists():
-        ui.error("No identity! Run 'ayova setup' first.")
-        return
-    
-    ui.info(f"Welcome, {identity.username}! Type 'exit' to quit.")
-    ui.console.print("Commands: trust, send, inbox, stats, or just type a message")
-    ui.console.print()
-    
-    while True:
-        try:
-            # Get user input
-            cmd = ui.console.input("[bold #9B8AE0]ayova> [/bold #9B8AE0]")
-            
-            if cmd.lower() in ['exit', 'quit', 'q']:
-                ui.info("Goodbye! 👋")
-                break
-            elif cmd.lower() == 'stats':
-                # Run stats command
-                store = storage.MessageStore()
-                local_count = store.count_messages()
-                tm = get_trust_manager()
-                ui.show_stats(local_count, len(tm.list_trusted()), True)
-            elif cmd.lower().startswith('trust '):
-                # Handle trust commands
-                ui.info("Use: ayova trust @user --pubkey <key>")
-            elif cmd.lower() == 'inbox':
-                ui.show_inbox([])  # Placeholder
-            else:
-                ui.info(f"Unknown command: {cmd}. Try: trust, send, stats, inbox, exit")
-                
-        except KeyboardInterrupt:
-            ui.info("\nGoodbye! 👋")
-            break
-        except EOFError:
-            break
